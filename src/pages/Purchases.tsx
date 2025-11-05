@@ -174,14 +174,18 @@ export default function Purchases() {
     setEditingItemId(item.itemId);
     setEditFormData({ itemName: item.itemName, itemCost: (item.itemCost || 0).toString() });
   };
-  const handleItemEditCancel = () => setEditingItemId(null);
+  const handleItemEditCancel = () => {
+    setEditingItemId(null);
+    setEditFormData({ itemName: '', itemCost: '' });
+  };
 
   const handleItemSave = async () => {
     if (!editingItemId) return;
     try {
-      await apiService.updateItem(selectedDate, editingItemId, editFormData.itemName, parseFloat(editFormData.itemCost));
+      await apiService.updateItem(editingItemId, editFormData.itemName, parseFloat(editFormData.itemCost));
       await fetchData();
       setEditingItemId(null);
+      setEditFormData({ itemName: '', itemCost: '' });
     } catch (err: any) {
       alert(err.message);
     }
@@ -230,6 +234,7 @@ export default function Purchases() {
   };
 
   const requestItemDelete = (itemId: string, itemName: string) => {
+    console.log('Deleting ID', itemId);
     setConfirmingDelete({ type: 'item', id: itemId, message: `Delete "${itemName}"?` });
   };
 

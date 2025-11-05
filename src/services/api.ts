@@ -91,13 +91,13 @@ class ApiService {
     return this.request(`/purchases/summary?year=${year}${monthParam}`);
   }
 
-  async updateItem(purchaseDate: string, itemId: string, itemName: string, itemCost: number) {
+  async updateItem(itemId: string, itemName: string, itemCost: number) {
     if (USE_MOCK) {
       console.log('Mock: Update item', { itemId, itemName, itemCost });
       return {};
     }
 
-    return this.request(`/items/${purchaseDate}`, {
+    return this.request('/items', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ itemId, itemName, itemCost })
@@ -110,7 +110,11 @@ class ApiService {
       return {};
     }
 
-    return this.request(`/items/${itemId}`, { method: 'DELETE' });
+    return this.request('/items', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId })
+    });
   }
 
   async updateReceiptDate(receiptId: string, newDate: string) {
