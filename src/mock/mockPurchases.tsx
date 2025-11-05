@@ -1,12 +1,24 @@
 import type { WeeklyPurchases } from '../types';
 
 export const mockData: WeeklyPurchases = {
-  weekStart: '2025-11-03',
-  weekEnd: '2025-11-09',
-  totalAmount: 123.45,
-  daysWithPurchases: 2,
+  weekStart: '2025-10-26',
+  weekEnd: '2025-11-01',
+  totalAmount: 130.87,
+  daysWithPurchases: 3,
   totalDays: 7,
   purchases: {
+    '2025-11-01': [
+      {
+        receiptId: 'mock-receipt-0',
+        merchant: 'Weekend Store',
+        total: 45.67,
+        timestamp: '2025-11-01T09:00:00.000Z',
+        items: [
+          { itemId: 'mock-item-0-1', itemName: 'Weekend Special', itemCost: 25.67 },
+          { itemId: 'mock-item-0-2', itemName: 'Fresh Produce', itemCost: 20.00 },
+        ],
+      },
+    ],
     '2025-11-03': [
       {
         receiptId: 'mock-receipt-1',
@@ -20,28 +32,6 @@ export const mockData: WeeklyPurchases = {
         ],
       },
     ],
-    '2025-11-05': [
-      {
-        receiptId: 'mock-receipt-2',
-        merchant: 'Supermarket',
-        total: 48.25,
-        timestamp: '2025-11-05T14:30:00.000Z',
-        items: [
-          { itemId: 'mock-item-2-1', itemName: 'Milk 2L', itemCost: 4.50 },
-          { itemId: 'mock-item-2-2', itemName: 'Bread', itemCost: 3.75 },
-          { itemId: 'mock-item-2-3', itemName: 'Special Discount', itemCost: -10.00 },
-          { itemId: 'mock-item-2-4', itemName: 'Coffee Beans', itemCost: 50.00 },
-        ],
-      },
-      {
-        receiptId: 'mock-receipt-3',
-        merchant: 'Cafe',
-        total: -10.00,
-        timestamp: '2025-11-05T15:00:00.000Z',
-        items: [
-          { itemId: 'mock-item-3-1', itemName: 'Refunded Coffee', itemCost: -10.00 },
-        ],
-      },
-    ],
+
   },
 };

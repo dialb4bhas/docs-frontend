@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import type { WeeklyPurchases, Item, Purchase } from '../types';
-import { mockData } from '../mock/mockPurchases';
-
-const API_BASE_URL = 'https://apis.betafactory.info/docs/v1';
-const USE_MOCK_DATA = import.meta.env.MODE === 'development';
+import { Link, useSearchParams } from 'react-router-dom';
+import type { WeeklyPurchases, Item } from '../types';
+import { useAuth } from '../hooks/useAuth';
+import { apiService } from '../services/api';
+import AuthComponent from '../components/Auth';
+import AuthRequired from '../components/AuthRequired';
 
 const formatDate = (date: Date) => date.toISOString().split('T')[0];
 
@@ -23,7 +23,7 @@ const ConfirmationModal = ({ message, onConfirm, onCancel }: { message: string, 
 );
 
 const PurchaseItemRow = ({
-  item, date, isEditing, editFormData, onEditClick, onEditCancel, onSave, onDelete, setEditFormData,
+  item, isEditing, editFormData, onEditClick, onEditCancel, onSave, onDelete, setEditFormData,
 }: any) => {
   return (
     <li className="bg-gray-800 rounded-lg p-1">
@@ -34,7 +34,7 @@ const PurchaseItemRow = ({
             <input type="number" step="0.01" value={editFormData.itemCost} onChange={e => setEditFormData({ ...editFormData, itemCost: e.target.value })} className="bg-gray-900 rounded px-2 py-1 w-24 text-right" />
           </div>
           <div className="flex items-center justify-end gap-2">
-            <button onClick={() => onSave(date)} className="bg-green-600 hover:bg-green-700 px-2 py-1 rounded text-xs">Save</button>
+            <button onClick={() => onSave()} className="bg-green-600 hover:bg-green-700 px-2 py-1 rounded text-xs">Save</button>
             <button onClick={() => onDelete(item.itemId, item.itemName)} className="bg-red-600 hover:bg-red-700 px-2 py-1 rounded text-xs">Delete</button>
             <button onClick={onEditCancel} className="bg-gray-600 hover:bg-gray-700 px-2 py-1 rounded text-xs">Cancel</button>
           </div>
@@ -73,7 +73,7 @@ const ReceiptCard = ({
           <div className="mt-4 flex items-center gap-2">
             <label htmlFor={`receipt-date-${purchase.receiptId}`} className="text-sm">Purchase Date:</label>
             <input id={`receipt-date-${purchase.receiptId}`} type="date" value={newReceiptDate} onChange={e => setNewReceiptDate(e.target.value)} className="bg-gray-800 border border-gray-600 rounded-md px-3 py-1.5 focus:ring-cyan-500 focus:border-cyan-500" />
-            <button onClick={() => onDateSave(purchase.receiptId, date)} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded-md text-xs font-medium">Save Date</button>
+            <button onClick={() => onDateSave(purchase.receiptId)} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded-md text-xs font-medium">Save Date</button>
           </div>
         </div>
       ) : (
@@ -94,7 +94,6 @@ const ReceiptCard = ({
               <PurchaseItemRow
                 key={item.itemId}
                 item={item}
-                date={date}
                 isEditing={itemProps.editingItemId === item.itemId}
                 onEditClick={itemProps.handleItemEditClick}
                 onEditCancel={itemProps.handleItemEditCancel}
@@ -113,10 +112,19 @@ const ReceiptCard = ({
 
 // --- Main Purchases Page Component ---
 export default function Purchases() {
+  const [searchParams] = useSearchParams();
+  const isAuthenticated = useAuth();
   const [data, setData] = useState<WeeklyPurchases | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
+  const [selectedDate, setSelectedDate] = useState(searchParams.get('date') || formatDate(new Date()));
+
+  useEffect(() => {
+    const dateParam = searchParams.get('date');
+    if (dateParam) {
+      setSelectedDate(dateParam);
+    }
+  }, [searchParams]);
 
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState({ itemName: '', itemCost: '' });
@@ -125,29 +133,36 @@ export default function Purchases() {
   const [confirmingDelete, setConfirmingDelete] = useState<{ type: 'receipt' | 'item', id: string, message: string, date?: string } | null>(null);
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    if (USE_MOCK_DATA) {
-      console.log("Using mock data for fetching.");
-      setTimeout(() => {
-        setData(JSON.parse(JSON.stringify(mockData))); // Use a copy to avoid mutation issues
-        setLoading(false);
-      }, 500);
+    if (!isAuthenticated) {
+      setLoading(false);
       return;
     }
+    setLoading(true);
+    setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/purchases?date=${selectedDate}`);
-      if (!response.ok) throw new Error('Failed to fetch data.');
-      const result: WeeklyPurchases = await response.json();
+      const result = await apiService.getPurchases(selectedDate);
       setData(result);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [selectedDate]);
+  }, [selectedDate, isAuthenticated]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  if (isAuthenticated === null) {
+    return <div className="bg-gray-900 min-h-screen text-white flex items-center justify-center">Loading...</div>;
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <AuthRequired 
+        title="Authentication Required" 
+        message="Please sign in to view your purchases." 
+      />
+    );
+  }
 
   const handleDateChange = (offset: number) => {
     const currentDate = new Date(selectedDate);
@@ -161,33 +176,11 @@ export default function Purchases() {
   };
   const handleItemEditCancel = () => setEditingItemId(null);
 
-  const handleItemSave = async (purchaseDate: string) => {
+  const handleItemSave = async () => {
     if (!editingItemId) return;
-    const body = { itemId: editingItemId, itemName: editFormData.itemName, itemCost: parseFloat(editFormData.itemCost) };
-    
-    if (USE_MOCK_DATA) {
-      console.log("Mocking item save:", body);
-      setData(prevData => {
-        if (!prevData) return null;
-        const newData = JSON.parse(JSON.stringify(prevData));
-        const purchase = newData.purchases[purchaseDate]?.find((p: Purchase) => p.items.some((i: Item) => i.itemId === editingItemId));
-        if (purchase) {
-          const item = purchase.items.find((i: Item) => i.itemId === editingItemId);
-          if (item) {
-            item.itemName = body.itemName;
-            item.itemCost = body.itemCost;
-          }
-        }
-        return newData;
-      });
-      setEditingItemId(null);
-      return;
-    }
-
     try {
-      const response = await fetch(`${API_BASE_URL}/items/${purchaseDate}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (!response.ok) throw new Error('Failed to save item.');
-      await fetchData(); // Refetch to get updated totals
+      await apiService.updateItem(selectedDate, editingItemId, editFormData.itemName, parseFloat(editFormData.itemCost));
+      await fetchData();
       setEditingItemId(null);
     } catch (err: any) {
       alert(err.message);
@@ -200,24 +193,9 @@ export default function Purchases() {
   };
   const handleReceiptDateCancel = () => setEditingReceiptId(null);
 
-  const handleReceiptDateSave = async (receiptId: string, oldDate: string) => {
-    if (USE_MOCK_DATA) {
-      console.log("Mocking receipt date save:", { receiptId, oldDate, newReceiptDate });
-      alert("Date saving is not fully mocked. Refetching mock data.");
-      setEditingReceiptId(null);
-      fetchData(); // Just refetch mock data for simplicity
-      return;
-    }
+  const handleReceiptDateSave = async (receiptId: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/receipts/${receiptId}/date`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ oldDate, newDate: newReceiptDate }),
-      });
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.message || 'Failed to update receipt date.');
-      }
+      await apiService.updateReceiptDate(receiptId, newReceiptDate);
       setEditingReceiptId(null);
       fetchData();
     } catch (err: any) {
@@ -226,26 +204,8 @@ export default function Purchases() {
   };
 
   const handleReceiptDelete = async (receiptId: string, purchaseDate: string) => {
-    if (USE_MOCK_DATA) {
-      console.log("Mocking receipt delete:", { receiptId, purchaseDate });
-      setData(prev => {
-        if (!prev) return null;
-        const newData = JSON.parse(JSON.stringify(prev));
-        if (newData.purchases[purchaseDate]) {
-          newData.purchases[purchaseDate] = newData.purchases[purchaseDate].filter((p: Purchase) => p.receiptId !== receiptId);
-        }
-        return newData;
-      });
-      setConfirmingDelete(null);
-      return;
-    }
     try {
-      const response = await fetch(`${API_BASE_URL}/receipts/${receiptId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ purchaseDate }),
-      });
-      if (!response.ok) throw new Error('Failed to delete receipt.');
+      await apiService.deleteReceipt(receiptId, purchaseDate);
       await fetchData();
     } catch (err: any) {
       alert(err.message);
@@ -255,24 +215,8 @@ export default function Purchases() {
   };
 
   const handleItemDelete = async (itemId: string) => {
-    if (USE_MOCK_DATA) {
-      console.log("Mocking item delete:", { itemId });
-      setData(prev => {
-        if (!prev) return null;
-        const newData = JSON.parse(JSON.stringify(prev));
-        for (const date in newData.purchases) {
-          for (const purchase of newData.purchases[date]) {
-            purchase.items = purchase.items.filter((i: Item) => i.itemId !== itemId);
-          }
-        }
-        return newData;
-      });
-      setConfirmingDelete(null);
-      return;
-    }
     try {
-      const response = await fetch(`${API_BASE_URL}/items/${itemId}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error('Failed to delete item.');
+      await apiService.deleteItem(itemId);
       await fetchData();
     } catch (err: any) {
       alert(err.message);
@@ -307,6 +251,7 @@ export default function Purchases() {
           <div className="flex items-center gap-2">
             <Link to="/summary" className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-md transition-colors">Summary View</Link>
             <Link to="/" className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-md transition-colors">Upload New</Link>
+            <AuthComponent />
           </div>
         </div>
         <div className="flex items-center justify-center gap-4 mb-6 p-4 bg-gray-800 rounded-lg">

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
-
-const API_UPLOAD_URL = 'https://apis.betafactory.info/docs/v1/upload';
+import { useNavigate } from 'react-router-dom';
+import AuthComponent from '../components/Auth';
+import LoginPrompt from '../components/LoginPrompt';
+import { useAuth } from '../hooks/useAuth';
+import { apiService } from '../services/api';
 
 // --- Helper Components (no changes) ---
 const Spinner = () => <div className="w-5 h-5 border-2 border-gray-400 border-t-white rounded-full animate-spin" />;
@@ -24,10 +26,39 @@ interface ReceiptDetails {
   totalCost?: number;
 }
 
+const ViewPurchasesButton = () => {
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const isAuthenticated = useAuth();
+  const navigate = useNavigate();
+
+  const handleClick = () => {
+    if (isAuthenticated) {
+      navigate('/purchases');
+    } else {
+      setShowLoginPrompt(true);
+    }
+  };
+
+  return (
+    <>
+      <button 
+        onClick={handleClick}
+        className="block w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-md text-center transition-colors"
+      >
+        View Past Purchases
+      </button>
+      <LoginPrompt 
+        isOpen={showLoginPrompt} 
+        onClose={() => setShowLoginPrompt(false)}
+      />
+    </>
+  );
+};
+
 export default function Uploader() {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [docType, setDocType] = useState('receipt');
+  const [docType, ] = useState('receipt');
   const [customDocType, setCustomDocType] = useState('');
   const [status, setStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
@@ -45,7 +76,25 @@ export default function Uploader() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+      const selectedFile = e.target.files[0];
+      
+      // File type validation
+      if (!selectedFile.type.startsWith('image/')) {
+        setStatus('error');
+        setMessage('Please select an image file.');
+        setFile(null);
+        return;
+      }
+      
+      // File size validation (3MB = 3 * 1024 * 1024 bytes)
+      if (selectedFile.size > 3 * 1024 * 1024) {
+        setStatus('error');
+        setMessage('File size must be less than 3MB.');
+        setFile(null);
+        return;
+      }
+      
+      setFile(selectedFile);
       setStatus('idle');
       setMessage('');
       setReceiptDetails(null);
@@ -68,22 +117,13 @@ export default function Uploader() {
     setStatus('uploading');
     setMessage('');
     setReceiptDetails(null);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('type', finalDocType);
+
     try {
-      const response = await fetch(API_UPLOAD_URL, { method: 'POST', body: formData });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || 'Upload failed.');
-      
+      const result = await apiService.uploadDocument(file, finalDocType);
       const totalCost = result.items?.reduce((sum: number, item: { itemCost: number }) => sum + item.itemCost, 0);
       
       setStatus('success');
       setReceiptDetails({ ...result, totalCost });
-
-      // REMOVED: The setTimeout that was resetting the form is now gone.
-      // The state will persist until the user takes another action.
-
     } catch (error: any) {
       setStatus('error');
       setMessage(error.message || 'An unknown error occurred.');
@@ -92,9 +132,13 @@ export default function Uploader() {
 
   return (
     <div className="bg-gray-900 min-h-screen flex flex-col items-center justify-center text-white p-4">
+      
+      <div className="w-full max-w-md mx-auto mt-6 mb-8">
+        <AuthComponent />
+      </div>
       {/* Uploader Card */}
       <div className="w-full max-w-md mx-auto bg-gray-800 rounded-xl shadow-lg p-6 md:p-8 space-y-6">
-        <h1 className="text-2xl font-bold text-center text-cyan-400">Document Uploader</h1>
+        <h1 className="text-2xl font-bold text-center text-cyan-400">Upload Your Receipts</h1>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label htmlFor="file-upload" className="cursor-pointer block w-full px-4 py-6 text-center bg-gray-700 border-2 border-dashed border-gray-600 rounded-lg hover:bg-gray-600 transition-colors">
@@ -102,14 +146,14 @@ export default function Uploader() {
             </label>
             <input id="file-upload" name="file-upload" type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="sr-only" />
           </div>
-          <div>
+          {/* <div>
             <label htmlFor="docType" className="block text-sm font-medium text-gray-300 mb-2">Document Type</label>
             <select id="docType" value={docType} onChange={(e) => setDocType(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 focus:ring-cyan-500 focus:border-cyan-500">
               <option value="receipt">Receipt</option>
               <option value="letter">Letter</option>
               <option value="other">Other (Specify)</option>
             </select>
-          </div>
+          </div> */}
           {docType === 'other' && (
             <div>
               <input type="text" value={customDocType} onChange={(e) => setCustomDocType(e.target.value)} placeholder="e.g., Invoice, ID Card..." className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 focus:ring-cyan-500 focus:border-cyan-500" required />
@@ -117,7 +161,7 @@ export default function Uploader() {
           )}
           <div>
             <button type="submit" disabled={status === 'uploading'} className="w-full flex items-center justify-center bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-500 text-white font-bold py-3 px-4 rounded-md transition-colors">
-              {status === 'uploading' ? <Spinner /> : 'Upload Document'}
+              {status === 'uploading' ? <Spinner /> : 'Upload'}
             </button>
           </div>
         </form>
@@ -160,10 +204,10 @@ export default function Uploader() {
       </div>
 
       <div className="w-full max-w-md mx-auto mt-6">
-        <Link to="/purchases" className="block w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-md text-center transition-colors">
-          View Weekly Purchases
-        </Link>
+        <ViewPurchasesButton />
       </div>
+
+      
     </div>
   );
 }

@@ -24,3 +24,30 @@ export interface WeeklyPurchases {
   totalAmount: number;
   purchases: PurchasesByDate;
 }
+
+export interface YearlySummaryItem {
+  month: number;
+  monthName: string;
+  totalAmount: number;
+  receiptCount: number;
+  itemCount: number;
+}
+
+export interface YearlySummary {
+  year: number;
+  summaries: YearlySummaryItem[];
+}
+
+export interface MonthlySummaryItem {
+  date: string;
+  dayName: string;
+  totalAmount: number;
+  receiptCount: number;
+  itemCount: number;
+}
+
+export interface MonthlySummary {
+  year: number;
+  month: number;
+  dailySummaries: MonthlySummaryItem[];
+}

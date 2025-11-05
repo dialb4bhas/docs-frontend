@@ -1,42 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
-import { mockYearlySummary } from '../mock/mockYearlySummary';
-import { mockMonthlySummary } from '../mock/mockMonthlySummary';
-
-const API_BASE_URL = 'https://apis.betafactory.info/docs/v1';
-const USE_MOCK_DATA = import.meta.env.MODE === 'development';
-
-// --- Type Definitions ---
-type YearlySummaryItem = {
-  month: number;
-  monthName: string;
-  totalAmount: number;
-  receiptCount: number;
-  itemCount: number;
-};
-
-type YearlySummary = {
-  year: number;
-  summaries: YearlySummaryItem[];
-};
-
-type MonthlySummaryItem = {
-  date: string;
-  dayName: string;
-  totalAmount: number;
-  receiptCount: number;
-  itemCount: number;
-};
-
-type MonthlySummary = {
-  year: number;
-  month: number;
-  dailySummaries: MonthlySummaryItem[];
-};
+import { apiService } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
+import AuthComponent from '../components/Auth';
+import AuthRequired from '../components/AuthRequired';
+import type { YearlySummary, MonthlySummary } from '../types';
 
 // --- Sub-components for Table View ---
 
-const YearlyTableView = ({ data, navigate }: { data: YearlySummary, navigate: Function }) => (
+const YearlyTableView = ({ data, navigate }: { data: YearlySummary, navigate: any }) => (
   <div className="bg-gray-800 rounded-lg overflow-hidden">
     <table className="w-full text-left">
       <thead className="bg-gray-700">
@@ -67,7 +39,7 @@ const YearlyTableView = ({ data, navigate }: { data: YearlySummary, navigate: Fu
   </div>
 );
 
-const MonthlyTableView = ({ data, navigate }: { data: MonthlySummary, navigate: Function }) => (
+const MonthlyTableView = ({ data, navigate }: { data: MonthlySummary, navigate: any }) => (
   <div className="bg-gray-800 rounded-lg overflow-hidden">
     <table className="w-full text-left">
       <thead className="bg-gray-700">
@@ -100,30 +72,41 @@ const MonthlyTableView = ({ data, navigate }: { data: MonthlySummary, navigate: 
 
 // --- Sub-components for Calendar View ---
 
-const YearlyCalendarView = ({ data, navigate }: { data: YearlySummary, navigate: Function }) => {
+const YearlyCalendarView = ({ data, navigate }: { data: YearlySummary, navigate: any }) => {
   const summaryMap = new Map(data.summaries.map(s => [s.month, s]));
   const months = Array.from({ length: 12 }, (_, i) => i + 1);
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
       {months.map(month => {
         const summary = summaryMap.get(month);
-        const monthName = new Date(data.year, month - 1).toLocaleString('default', { month: 'long' });
+        const monthName = new Date(data.year, month - 1).toLocaleString('default', { month: 'short' });
+        const hasData = summary && summary.receiptCount > 0;
         return (
           <div 
             key={month}
-            className="bg-gray-800 p-4 rounded-lg hover:bg-gray-700/80 cursor-pointer transition-colors"
-            onClick={() => navigate(`/summary?year=${data.year}&month=${month}`)}
+            className={`aspect-square bg-gray-800 p-3 sm:p-4 rounded-lg transition-colors relative ${
+              hasData ? 'cursor-pointer hover:bg-gray-700' : 'bg-gray-900'
+            }`}
+            onClick={() => hasData && navigate(`/summary?year=${data.year}&month=${month}`)}
           >
-            <h3 className="font-bold text-lg mb-2">{monthName}</h3>
-            {summary ? (
-              <div className="text-sm space-y-1">
-                <p className={`font-mono ${summary.totalAmount < 0 ? 'text-red-400' : 'text-green-400'}`}>${summary.totalAmount.toFixed(2)}</p>
-                <p className="text-gray-400">{summary.receiptCount} receipts</p>
-                <p className="text-gray-400">{summary.itemCount} items</p>
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500">No data</p>
+            <div className="flex flex-col h-full justify-between">
+              <h3 className="font-bold text-sm sm:text-base">{monthName}</h3>
+              {summary ? (
+                <div className="text-xs sm:text-sm space-y-1">
+                  <p className={`font-mono font-bold ${
+                    summary.totalAmount < 0 ? 'text-red-400' : 'text-green-400'
+                  }`}>
+                    ${Math.abs(summary.totalAmount).toFixed(0)}
+                  </p>
+                  <p className="text-gray-400">{summary.receiptCount} receipts</p>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">No data</p>
+              )}
+            </div>
+            {hasData && (
+              <div className="absolute top-2 right-2 w-2 h-2 bg-cyan-400 rounded-full"></div>
             )}
           </div>
         );
@@ -132,7 +115,7 @@ const YearlyCalendarView = ({ data, navigate }: { data: YearlySummary, navigate:
   );
 };
 
-const MonthlyCalendarView = ({ data, navigate }: { data: MonthlySummary, navigate: Function }) => {
+const MonthlyCalendarView = ({ data, navigate }: { data: MonthlySummary, navigate: any }) => {
   const { year, month } = data;
   const summaryMap = new Map(data.dailySummaries.map(s => [new Date(s.date + 'T00:00:00').getDate(), s]));
   
@@ -141,7 +124,7 @@ const MonthlyCalendarView = ({ data, navigate }: { data: MonthlySummary, navigat
   const days = [];
 
   for (let i = 0; i < firstDayOfMonth; i++) {
-    days.push(<div key={`blank-${i}`} className="border border-gray-800 rounded-md"></div>);
+    days.push(<div key={`blank-${i}`} className="aspect-square"></div>);
   }
 
   for (let day = 1; day <= daysInMonth; day++) {
@@ -151,24 +134,37 @@ const MonthlyCalendarView = ({ data, navigate }: { data: MonthlySummary, navigat
       <div
         key={day}
         onClick={() => hasPurchases && navigate(`/purchases?date=${summary.date}`)}
-        className={`border border-gray-700 p-2 h-24 flex flex-col justify-between rounded-md ${hasPurchases ? 'cursor-pointer hover:bg-gray-700 transition-colors' : 'bg-gray-800/50 text-gray-500'}`}
+        className={`aspect-square border border-gray-600 rounded-lg p-1 sm:p-2 flex flex-col justify-between relative ${
+          hasPurchases 
+            ? 'cursor-pointer hover:bg-gray-700 bg-gray-800 transition-colors' 
+            : 'bg-gray-900 text-gray-500'
+        }`}
       >
-        <span className="font-semibold">{day}</span>
+        <span className="text-xs sm:text-sm font-medium">{day}</span>
         {summary && hasPurchases && (
-          <span className={`block text-xs font-bold self-end ${summary.totalAmount < 0 ? 'text-red-400' : 'text-green-400'}`}>
-            ${Math.abs(summary.totalAmount).toFixed(2)}
-          </span>
+          <>
+            <div className={`text-xs font-bold text-right ${
+              summary.totalAmount < 0 ? 'text-red-400' : 'text-green-400'
+            }`}>
+              ${Math.abs(summary.totalAmount).toFixed(0)}
+            </div>
+            <div className="absolute top-1 right-1 w-2 h-2 bg-cyan-400 rounded-full"></div>
+          </>
         )}
       </div>
     );
   }
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
-      <div className="grid grid-cols-7 text-center font-semibold mb-2">
-        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <div key={day}>{day}</div>)}
+    <div className="bg-gray-800 rounded-lg p-2 sm:p-4">
+      <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-2">
+        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
+          <div key={i} className="text-center text-xs sm:text-sm font-semibold text-gray-400 py-2">
+            {day}
+          </div>
+        ))}
       </div>
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-1 sm:gap-2">
         {days}
       </div>
     </div>
@@ -181,6 +177,7 @@ const MonthlyCalendarView = ({ data, navigate }: { data: MonthlySummary, navigat
 export default function Summary() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const isAuthenticated = useAuth();
   const [data, setData] = useState<YearlySummary | MonthlySummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -190,39 +187,40 @@ export default function Summary() {
   const month = searchParams.get('month');
 
   const fetchData = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     setData(null);
 
-    let url = `${API_BASE_URL}/purchases/summary?year=${year}`;
-    if (month) {
-      url += `&month=${month}`;
-    }
-
-    if (USE_MOCK_DATA) {
-      console.log(`Using mock data for: ${url}`);
-      setTimeout(() => {
-        setData(month ? mockMonthlySummary : mockYearlySummary);
-        setLoading(false);
-      }, 500);
-      return;
-    }
-
     try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('Failed to fetch summary data.');
-      const result = await response.json();
+      const result = await apiService.getSummary(year, month ? parseInt(month) : undefined);
       setData(result);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [year, month]);
+  }, [year, month, isAuthenticated]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  if (isAuthenticated === null) {
+    return <div className="bg-gray-900 min-h-screen text-white flex items-center justify-center">Loading...</div>;
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <AuthRequired 
+        title="Authentication Required" 
+        message="Please sign in to view your purchase summary." 
+      />
+    );
+  }
 
   const handleDateChange = (yearOffset: number, monthOffset: number = 0) => {
     if (month) {
@@ -240,7 +238,11 @@ export default function Summary() {
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-cyan-400">Purchase Summary</h1>
-          <Link to="/purchases" className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-md transition-colors">Weekly View</Link>
+          <div className="flex items-center gap-2">
+            <Link to="/purchases" className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-md transition-colors">Weekly View</Link>
+            <Link to="/" className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-md transition-colors">Upload New</Link>
+            <AuthComponent />
+          </div>
         </div>
 
         <div className="flex items-center justify-between gap-4 mb-6 p-4 bg-gray-800 rounded-lg">
