@@ -73,8 +73,8 @@ const ReceiptCard = ({
           <div className="mt-4 flex items-center gap-2">
             <label htmlFor={`receipt-date-${purchase.receiptId}`} className="text-sm">Purchase Date:</label>
             <input id={`receipt-date-${purchase.receiptId}`} type="date" value={newReceiptDate} onChange={e => setNewReceiptDate(e.target.value)} className="bg-gray-800 border border-gray-600 rounded-md px-3 py-1.5 focus:ring-cyan-500 focus:border-cyan-500" />
-            <button onClick={() => onDateSave(purchase.receiptId)} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded-md text-xs font-medium">Save Date</button>
-          </div>
+            <button onClick={() => onDateSave(purchase.receiptId, date)} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded-md text-xs font-medium">Save Date</button>
+          </div>          
         </div>
       ) : (
         <details className="p-4">
@@ -197,9 +197,9 @@ export default function Purchases() {
   };
   const handleReceiptDateCancel = () => setEditingReceiptId(null);
 
-  const handleReceiptDateSave = async (receiptId: string) => {
+  const handleReceiptDateSave = async (receiptId: string, oldDate: string) => {
     try {
-      await apiService.updateReceiptDate(receiptId, newReceiptDate);
+      await apiService.updateReceiptDate(receiptId, newReceiptDate, oldDate);
       setEditingReceiptId(null);
       fetchData();
     } catch (err: any) {

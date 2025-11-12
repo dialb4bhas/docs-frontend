@@ -51,3 +51,65 @@ export interface MonthlySummary {
   month: number;
   dailySummaries: MonthlySummaryItem[];
 }
+
+export interface UserItemStats {
+  itemName: string;
+  shortLabel: string;
+  category: string;
+  totalSpent: number;
+  purchaseCount: number;
+  avgCost: number;
+  lastPurchase: string;
+  monthlyBreakdown: Record<string, number>;
+}
+
+export interface UserItemStatsResponse {
+  timeFilter: {
+    period: string;
+    range: string[];
+  };
+  items: UserItemStats[];
+  hasMore: boolean;
+  nextToken?: string;
+}
+
+export interface CategoryTopItem {
+  shortLabel: string;
+  totalSpent: number;
+}
+
+export interface CategoryStats {
+  category: string;
+  totalSpent: number;
+  itemCount: number;
+  avgSpentPerItem: number;
+  topItems: CategoryTopItem[];
+}
+
+export interface UserCategoryStatsResponse {
+  userId: string;
+  totalSpent: number;
+  categories: CategoryStats[];
+}
+
+export interface TopItem {
+  shortLabel: string;
+  totalSpent: number;
+  purchaseCount: number;
+}
+
+export interface UserSummaryStats {
+  year: string;
+  totalSpent: number;
+  totalUniqueItems: number;
+  avgSpentPerItem: number;
+  topItems: TopItem[];
+}
+
+export interface GlobalItemStats {
+  itemName: string;
+  totalSpent: number;
+  totalPurchases: number;
+  avgCost: number;
+  lastUpdated: string;
+}

@@ -239,6 +239,7 @@ export default function Summary() {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-cyan-400">Purchase Summary</h1>
           <div className="flex items-center gap-2">
+            <Link to="/stats" className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-md transition-colors">Stats</Link>
             <Link to="/purchases" className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-md transition-colors">Weekly View</Link>
             <Link to="/" className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-md transition-colors">Upload New</Link>
             <AuthComponent />
