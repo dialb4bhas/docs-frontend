@@ -50,6 +50,11 @@ class ApiService {
     if (endpoint.includes('/user-stats/items')) {
       let items = [...mockItemStats];
       
+      // Filter by category if provided
+      if (filters?.category) {
+        items = items.filter(item => item.category === filters.category);
+      }
+      
       // Simulate different data based on period
       const period = filters?.period;
       if (period?.startsWith('last-')) {
@@ -244,21 +249,24 @@ class ApiService {
     });
   }
 
-  async getUserItemStats(limit: number = 20, nextToken?: string, period?: string): Promise<UserItemStatsResponse> {
+  async getUserItemStats(limit: number = 20, nextToken?: string, period?: string, category?: string): Promise<UserItemStatsResponse> {
     if (USE_MOCK) {
-      return this.mockRequest('/user-stats/items', { period }, limit, nextToken);
+      return this.mockRequest('/user-stats/items', { period, category }, limit, nextToken);
     }
     const params = new URLSearchParams({ limit: limit.toString() });
     if (nextToken) params.append('nextToken', nextToken);
     if (period) params.append('period', period);
+    if (category) params.append('category', category);
     return this.request(`/user-stats/items?${params}`);
   }
 
-  async getUserSummaryStats(): Promise<UserSummaryStats> {
+  async getUserSummaryStats(period?: string): Promise<UserSummaryStats> {
     if (USE_MOCK) {
-      return this.mockRequest('/user-stats/summary');
+      return this.mockRequest('/user-stats/summary', { period });
     }
-    return this.request('/user-stats/summary');
+    const params = new URLSearchParams();
+    if (period) params.append('period', period);
+    return this.request(`/user-stats/summary?${params}`);
   }
 
   async getGlobalItemStats(itemName: string): Promise<GlobalItemStats> {

@@ -17,6 +17,7 @@ export default function Stats() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [lastMonths, setLastMonths] = useState(3);
+  const [selectedCategory, setSelectedCategory] = useState<string | undefined>();
   const [categoryStats, setCategoryStats] = useState<UserCategoryStatsResponse | null>(null);
   const [globalStats, setGlobalStats] = useState<GlobalItemStats | null>(null);
   const [globalItemName, setGlobalItemName] = useState('');
@@ -27,8 +28,22 @@ export default function Stats() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiService.getUserSummaryStats();
-      setSummaryStats(data);
+      let period: string | undefined;
+      if (timeFilter === 'year') {
+        period = selectedYear.toString();
+      } else if (timeFilter === 'month') {
+        period = `${selectedYear}-${selectedMonth.toString().padStart(2, '0')}`;
+      } else if (timeFilter === 'months') {
+        period = `last-${lastMonths}-months`;
+      } else {
+        period = 'current-year';
+      }
+      const [summaryData, categoryData] = await Promise.all([
+        apiService.getUserSummaryStats(period),
+        apiService.getUserCategoryStats(period)
+      ]);
+      setSummaryStats(summaryData);
+      setCategoryStats(categoryData);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -76,7 +91,7 @@ export default function Stats() {
         period = 'current-year';
       }
       
-      const data = await apiService.getUserItemStats(20, token, period);
+      const data = await apiService.getUserItemStats(20, token, period, selectedCategory);
       setItemStats(data);
       if (reset) {
         setAllItems(data.items);
@@ -117,7 +132,12 @@ export default function Stats() {
     if (activeTab === 'summary') fetchSummaryStats();
     else if (activeTab === 'items') fetchItemStats(true);
     else if (activeTab === 'categories') fetchCategoryStats();
-  }, [activeTab, isAuthenticated, timeFilter, selectedYear, selectedMonth, lastMonths]);
+  }, [activeTab, isAuthenticated, timeFilter, selectedYear, selectedMonth, lastMonths, selectedCategory]);
+
+  const handleCategoryClick = (categoryName: string) => {
+    setSelectedCategory(categoryName);
+    setActiveTab('items');
+  };
 
   if (isAuthenticated === null) {
     return <div className="bg-gray-900 min-h-screen text-white flex items-center justify-center">Loading...</div>;
@@ -180,6 +200,62 @@ export default function Stats() {
           </div>
         )}
 
+        {activeTab === 'summary' && (
+          <div className="mb-4 bg-gray-800 p-4 rounded-lg">
+            <div className="flex flex-wrap gap-6 mb-3">
+              <div className="flex items-center gap-2">
+                <input type="radio" id="sum-current-year" name="sumTimeFilter" checked={timeFilter === 'current-year'} onChange={() => setTimeFilter('current-year')} className="text-cyan-600" />
+                <label htmlFor="sum-current-year" className="text-sm">Current Year</label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="radio" id="sum-year" name="sumTimeFilter" checked={timeFilter === 'year'} onChange={() => setTimeFilter('year')} className="text-cyan-600" />
+                <label htmlFor="sum-year" className="text-sm">Year</label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="radio" id="sum-month" name="sumTimeFilter" checked={timeFilter === 'month'} onChange={() => setTimeFilter('month')} className="text-cyan-600" />
+                <label htmlFor="sum-month" className="text-sm">Month</label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="radio" id="sum-months" name="sumTimeFilter" checked={timeFilter === 'months'} onChange={() => setTimeFilter('months')} className="text-cyan-600" />
+                <label htmlFor="sum-months" className="text-sm">Last N Months</label>
+              </div>
+            </div>
+            
+            <div className="flex flex-wrap gap-4">
+              {timeFilter === 'year' && (
+                <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
+                  {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              )}
+              
+              {timeFilter === 'month' && (
+                <div className="flex gap-2">
+                  <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
+                    {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(year => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                  <select value={selectedMonth} onChange={(e) => setSelectedMonth(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
+                    {Array.from({length: 12}, (_, i) => i + 1).map(month => (
+                      <option key={month} value={month}>{new Date(0, month - 1).toLocaleString('default', { month: 'long' })}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              
+              {timeFilter === 'months' && (
+                <select value={lastMonths} onChange={(e) => setLastMonths(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
+                  <option value={3}>Last 3 months</option>
+                  <option value={6}>Last 6 months</option>
+                  <option value={12}>Last 12 months</option>
+                </select>
+              )}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'summary' && !loading && !error && (
           summaryStats ? (
             <div className="space-y-6">
@@ -212,6 +288,31 @@ export default function Stats() {
                   ))}
                 </div>
               </div>
+
+              {categoryStats && categoryStats.categories.length > 0 && (
+                <div className="bg-gray-800 rounded-lg p-6">
+                  <h3 className="text-xl font-semibold mb-4">Categories</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {categoryStats.categories.map((category, index) => (
+                      <div 
+                        key={index} 
+                        className="bg-gray-700 p-4 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors"
+                        onClick={() => handleCategoryClick(category.category)}
+                      >
+                        <div className="flex justify-between items-center mb-2">
+                          <h4 className="font-semibold text-cyan-400">{category.category}</h4>
+                          <span className="text-lg font-bold text-green-400">${category.totalSpent.toFixed(2)}</span>
+                        </div>
+                        <p className="text-sm text-gray-400 mb-2">{category.itemCount} items • Avg ${category.avgSpentPerItem.toFixed(2)}</p>
+                        <div className="text-xs text-gray-500">
+                          Top: {category.topItems.slice(0, 2).map(item => item.shortLabel).join(', ')}
+                          {category.topItems.length > 2 && ` +${category.topItems.length - 2} more`}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-12 bg-gray-800 rounded-lg">
@@ -282,7 +383,26 @@ export default function Stats() {
           allItems.length > 0 ? (
             <div className="bg-gray-800 rounded-lg overflow-hidden">
               <div className="p-4 border-b border-gray-700">
-                <h3 className="text-xl font-semibold">Items ({allItems.length}{itemStats?.hasMore ? '+' : ''})</h3>
+                <div className="flex justify-between items-center">
+                  <div>
+                    {selectedCategory ? (
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-sm text-gray-400">All Items</span>
+                        <span className="text-gray-400">&gt;</span>
+                        <span className="text-sm text-cyan-400">{selectedCategory}</span>
+                        <button 
+                          onClick={() => setSelectedCategory(undefined)}
+                          className="ml-2 text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
+                        >
+                          Clear Filter
+                        </button>
+                      </div>
+                    ) : null}
+                    <h3 className="text-xl font-semibold">
+                      {selectedCategory ? `${selectedCategory} Items` : 'Items'} ({allItems.length}{itemStats?.hasMore ? '+' : ''})
+                    </h3>
+                  </div>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
