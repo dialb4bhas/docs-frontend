@@ -4,40 +4,41 @@ import { apiService } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import AuthComponent from '../components/Auth';
 import AuthRequired from '../components/AuthRequired';
-import type { UserItemStats, UserItemStatsResponse, UserSummaryStats, GlobalItemStats, UserCategoryStatsResponse } from '../types';
+import type { UserItemStats, UserSummaryStats, UserCategoryStatsResponse } from '../types';
 
 export default function Stats() {
   const isAuthenticated = useAuth();
-  const [activeTab, setActiveTab] = useState<'summary' | 'items' | 'categories' | 'global'>('summary');
   const [summaryStats, setSummaryStats] = useState<UserSummaryStats | null>(null);
-  const [itemStats, setItemStats] = useState<UserItemStatsResponse | null>(null);
-  const [allItems, setAllItems] = useState<UserItemStats[]>([]);
-  const [nextToken, setNextToken] = useState<string | undefined>();
-  const [timeFilter, setTimeFilter] = useState<'current-year' | 'year' | 'month' | 'months'>('current-year');
+  const [categoryStats, setCategoryStats] = useState<UserCategoryStatsResponse | null>(null);
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+  const [categoryItems, setCategoryItems] = useState<UserItemStats[]>([]);
+  const [categoryHasMore, setCategoryHasMore] = useState(false);
+  const [, setCategoryNextToken] = useState<string | undefined>();
+  const [categoryLoading, setCategoryLoading] = useState(false);
+  const [categoryPage, setCategoryPage] = useState(1);
+  const [categoryTokens, setCategoryTokens] = useState<(string | undefined)[]>([undefined]);
+  const [timeFilter, setTimeFilter] = useState<'year' | 'month' | 'months'>('year');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [lastMonths, setLastMonths] = useState(3);
-  const [selectedCategory, setSelectedCategory] = useState<string | undefined>();
-  const [categoryStats, setCategoryStats] = useState<UserCategoryStatsResponse | null>(null);
-  const [globalStats, setGlobalStats] = useState<GlobalItemStats | null>(null);
-  const [globalItemName, setGlobalItemName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSummaryStats = async () => {
+  const getPeriod = () => {
+    if (timeFilter === 'year') {
+      return selectedYear.toString();
+    } else if (timeFilter === 'month') {
+      return `${selectedYear}-${selectedMonth.toString().padStart(2, '0')}`;
+    } else {
+      return `last-${lastMonths}-months`;
+    }
+  };
+
+  const fetchStats = async () => {
     setLoading(true);
     setError(null);
     try {
-      let period: string | undefined;
-      if (timeFilter === 'year') {
-        period = selectedYear.toString();
-      } else if (timeFilter === 'month') {
-        period = `${selectedYear}-${selectedMonth.toString().padStart(2, '0')}`;
-      } else if (timeFilter === 'months') {
-        period = `last-${lastMonths}-months`;
-      } else {
-        period = 'current-year';
-      }
+      const period = getPeriod();
       const [summaryData, categoryData] = await Promise.all([
         apiService.getUserSummaryStats(period),
         apiService.getUserCategoryStats(period)
@@ -51,93 +52,66 @@ export default function Stats() {
     }
   };
 
-  const fetchCategoryStats = async () => {
-    setLoading(true);
-    setError(null);
+  const fetchCategoryItems = async (categoryName: string, page: number = 1) => {
+    setCategoryLoading(true);
     try {
-      let period: string | undefined;
-      if (timeFilter === 'year') {
-        period = selectedYear.toString();
-      } else if (timeFilter === 'month') {
-        period = `${selectedYear}-${selectedMonth.toString().padStart(2, '0')}`;
-      } else if (timeFilter === 'months') {
-        period = `last-${lastMonths}-months`;
-      } else {
-        period = 'current-year';
-      }
-      const data = await apiService.getUserCategoryStats(period);
-      setCategoryStats(data);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchItemStats = async (reset: boolean = true) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const token = reset ? undefined : nextToken;
-      let period: string | undefined;
+      const token = categoryTokens[page - 1];
+      const period = getPeriod();
+      const data = await apiService.getUserItemStats(20, token, period, categoryName);
       
-      if (timeFilter === 'year') {
-        period = selectedYear.toString();
-      } else if (timeFilter === 'month') {
-        period = `${selectedYear}-${selectedMonth.toString().padStart(2, '0')}`;
-      } else if (timeFilter === 'months') {
-        period = `last-${lastMonths}-months`;
-      } else {
-        period = 'current-year';
-      }
+      setCategoryItems(data.items);
+      setCategoryHasMore(data.hasMore);
+      setCategoryNextToken(data.nextToken);
       
-      const data = await apiService.getUserItemStats(20, token, period, selectedCategory);
-      setItemStats(data);
-      if (reset) {
-        setAllItems(data.items);
-      } else {
-        setAllItems(prev => [...prev, ...data.items]);
+      // Store next token for future pages
+      if (data.hasMore && data.nextToken) {
+        const newTokens = [...categoryTokens];
+        newTokens[page] = data.nextToken;
+        setCategoryTokens(newTokens);
       }
-      setNextToken(data.nextToken);
     } catch (err: any) {
-      setError(err.message);
+      console.error('Error fetching category items:', err);
     } finally {
-      setLoading(false);
+      setCategoryLoading(false);
     }
   };
 
-  const loadMoreItems = () => {
-    if (itemStats?.hasMore && !loading) {
-      fetchItemStats(false);
+  const handleCategoryExpand = (categoryName: string) => {
+    if (expandedCategory === categoryName) {
+      setExpandedCategory(null);
+      setCategoryItems([]);
+      setCategoryPage(1);
+      setCategoryTokens([undefined]);
+    } else {
+      setExpandedCategory(categoryName);
+      setCategoryPage(1);
+      setCategoryTokens([undefined]);
+      fetchCategoryItems(categoryName, 1);
     }
   };
 
-  const fetchGlobalStats = async () => {
-    if (!globalItemName.trim()) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiService.getGlobalItemStats(globalItemName.trim());
-      setGlobalStats(data);
-    } catch (err: any) {
-      setError(err.message);
-      setGlobalStats(null);
-    } finally {
-      setLoading(false);
+  const goToNextPage = () => {
+    if (categoryHasMore && !categoryLoading && expandedCategory) {
+      const nextPage = categoryPage + 1;
+      setCategoryPage(nextPage);
+      fetchCategoryItems(expandedCategory, nextPage);
+    }
+  };
+
+  const goToPage = (page: number) => {
+    if (!categoryLoading && expandedCategory && page >= 1) {
+      setCategoryPage(page);
+      fetchCategoryItems(expandedCategory, page);
     }
   };
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    if (activeTab === 'summary') fetchSummaryStats();
-    else if (activeTab === 'items') fetchItemStats(true);
-    else if (activeTab === 'categories') fetchCategoryStats();
-  }, [activeTab, isAuthenticated, timeFilter, selectedYear, selectedMonth, lastMonths, selectedCategory]);
-
-  const handleCategoryClick = (categoryName: string) => {
-    setSelectedCategory(categoryName);
-    setActiveTab('items');
-  };
+    fetchStats();
+    setExpandedCategory(null);
+    setCategoryPage(1);
+    setCategoryTokens([undefined]);
+  }, [isAuthenticated, timeFilter, selectedYear, selectedMonth, lastMonths]);
 
   if (isAuthenticated === null) {
     return <div className="bg-gray-900 min-h-screen text-white flex items-center justify-center">Loading...</div>;
@@ -165,470 +139,201 @@ export default function Stats() {
           </div>
         </div>
 
-        <div className="flex gap-1 bg-gray-800 p-1 rounded-lg mb-6">
-          <button 
-            onClick={() => setActiveTab('summary')} 
-            className={`px-4 py-2 rounded-md transition-colors ${activeTab === 'summary' ? 'bg-cyan-600' : 'hover:bg-gray-700'}`}
-          >
-            Summary
-          </button>
-          <button 
-            onClick={() => setActiveTab('items')} 
-            className={`px-4 py-2 rounded-md transition-colors ${activeTab === 'items' ? 'bg-cyan-600' : 'hover:bg-gray-700'}`}
-          >
-            Item Details
-          </button>
-          <button 
-            onClick={() => setActiveTab('categories')} 
-            className={`px-4 py-2 rounded-md transition-colors ${activeTab === 'categories' ? 'bg-cyan-600' : 'hover:bg-gray-700'}`}
-          >
-            Categories
-          </button>
-          <button 
-            onClick={() => setActiveTab('global')} 
-            className={`px-4 py-2 rounded-md transition-colors ${activeTab === 'global' ? 'bg-cyan-600' : 'hover:bg-gray-700'}`}
-          >
-            Global Lookup
-          </button>
+        {/* Time Filter */}
+        <div className="mb-6 bg-gray-800 p-4 rounded-lg">
+          <div className="flex flex-wrap gap-6 mb-3">
+            <div className="flex items-center gap-2">
+              <input type="radio" id="year" name="timeFilter" checked={timeFilter === 'year'} onChange={() => setTimeFilter('year')} className="text-cyan-600" />
+              <label htmlFor="year" className="text-sm">Year</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="radio" id="month" name="timeFilter" checked={timeFilter === 'month'} onChange={() => setTimeFilter('month')} className="text-cyan-600" />
+              <label htmlFor="month" className="text-sm">Month</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="radio" id="months" name="timeFilter" checked={timeFilter === 'months'} onChange={() => setTimeFilter('months')} className="text-cyan-600" />
+              <label htmlFor="months" className="text-sm">Last N Months</label>
+            </div>
+          </div>
+          
+          <div className="flex flex-wrap gap-4">
+            {timeFilter === 'year' && (
+              <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
+                {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(year => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            )}
+            
+            {timeFilter === 'month' && (
+              <div className="flex gap-2">
+                <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
+                  {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+                <select value={selectedMonth} onChange={(e) => setSelectedMonth(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
+                  {Array.from({length: 12}, (_, i) => i + 1).map(month => (
+                    <option key={month} value={month}>{new Date(0, month - 1).toLocaleString('default', { month: 'long' })}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            
+            {timeFilter === 'months' && (
+              <select value={lastMonths} onChange={(e) => setLastMonths(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
+                <option value={3}>Last 3 months</option>
+                <option value={6}>Last 6 months</option>
+              </select>
+            )}
+          </div>
         </div>
 
-        {loading && activeTab !== 'items' && <p className="text-center py-8">Loading...</p>}
-        {error && activeTab !== 'items' && (
+        {loading && <p className="text-center py-8">Loading...</p>}
+        {error && (
           <div className="text-center py-8">
             <p className="text-red-400 mb-2">⚠️ Error loading data</p>
             <p className="text-gray-400 text-sm">{error}</p>
           </div>
         )}
 
-        {activeTab === 'summary' && (
-          <div className="mb-4 bg-gray-800 p-4 rounded-lg">
-            <div className="flex flex-wrap gap-6 mb-3">
-              <div className="flex items-center gap-2">
-                <input type="radio" id="sum-current-year" name="sumTimeFilter" checked={timeFilter === 'current-year'} onChange={() => setTimeFilter('current-year')} className="text-cyan-600" />
-                <label htmlFor="sum-current-year" className="text-sm">Current Year</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <input type="radio" id="sum-year" name="sumTimeFilter" checked={timeFilter === 'year'} onChange={() => setTimeFilter('year')} className="text-cyan-600" />
-                <label htmlFor="sum-year" className="text-sm">Year</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <input type="radio" id="sum-month" name="sumTimeFilter" checked={timeFilter === 'month'} onChange={() => setTimeFilter('month')} className="text-cyan-600" />
-                <label htmlFor="sum-month" className="text-sm">Month</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <input type="radio" id="sum-months" name="sumTimeFilter" checked={timeFilter === 'months'} onChange={() => setTimeFilter('months')} className="text-cyan-600" />
-                <label htmlFor="sum-months" className="text-sm">Last N Months</label>
-              </div>
-            </div>
-            
-            <div className="flex flex-wrap gap-4">
-              {timeFilter === 'year' && (
-                <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
-                  {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(year => (
-                    <option key={year} value={year}>{year}</option>
-                  ))}
-                </select>
-              )}
-              
-              {timeFilter === 'month' && (
-                <div className="flex gap-2">
-                  <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
-                    {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(year => (
-                      <option key={year} value={year}>{year}</option>
-                    ))}
-                  </select>
-                  <select value={selectedMonth} onChange={(e) => setSelectedMonth(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
-                    {Array.from({length: 12}, (_, i) => i + 1).map(month => (
-                      <option key={month} value={month}>{new Date(0, month - 1).toLocaleString('default', { month: 'long' })}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              
-              {timeFilter === 'months' && (
-                <select value={lastMonths} onChange={(e) => setLastMonths(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
-                  <option value={3}>Last 3 months</option>
-                  <option value={6}>Last 6 months</option>
-                  <option value={12}>Last 12 months</option>
-                </select>
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'summary' && !loading && !error && (
-          summaryStats ? (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-gray-800 p-6 rounded-lg">
-                  <h3 className="text-lg font-semibold mb-2">Total Spent</h3>
-                  <p className="text-3xl font-bold text-green-400">${summaryStats.totalSpent.toFixed(2)}</p>
-                </div>
-                <div className="bg-gray-800 p-6 rounded-lg">
-                  <h3 className="text-lg font-semibold mb-2">Unique Items</h3>
-                  <p className="text-3xl font-bold text-cyan-400">{summaryStats.totalUniqueItems}</p>
-                </div>
-                <div className="bg-gray-800 p-6 rounded-lg">
-                  <h3 className="text-lg font-semibold mb-2">Avg per Item</h3>
-                  <p className="text-3xl font-bold text-yellow-400">${summaryStats.avgSpentPerItem.toFixed(2)}</p>
-                </div>
-              </div>
-
-              <div className="bg-gray-800 rounded-lg p-6">
-                <h3 className="text-xl font-semibold mb-4">Top 5 Items</h3>
-                <div className="space-y-3">
-                  {summaryStats.topItems.map((item, index) => (
-                    <div key={index} className="flex justify-between items-center p-3 bg-gray-700 rounded">
-                      <div>
-                        <p className="font-semibold">{item.shortLabel}</p>
-                        <p className="text-sm text-gray-400">{item.purchaseCount} purchases</p>
-                      </div>
-                      <p className="text-lg font-bold text-green-400">${item.totalSpent.toFixed(2)}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {categoryStats && categoryStats.categories.length > 0 && (
-                <div className="bg-gray-800 rounded-lg p-6">
-                  <h3 className="text-xl font-semibold mb-4">Categories</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {categoryStats.categories.map((category, index) => (
-                      <div 
-                        key={index} 
-                        className="bg-gray-700 p-4 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors"
-                        onClick={() => handleCategoryClick(category.category)}
-                      >
-                        <div className="flex justify-between items-center mb-2">
-                          <h4 className="font-semibold text-cyan-400">{category.category}</h4>
-                          <span className="text-lg font-bold text-green-400">${category.totalSpent.toFixed(2)}</span>
-                        </div>
-                        <p className="text-sm text-gray-400 mb-2">{category.itemCount} items • Avg ${category.avgSpentPerItem.toFixed(2)}</p>
-                        <div className="text-xs text-gray-500">
-                          Top: {category.topItems.slice(0, 2).map(item => item.shortLabel).join(', ')}
-                          {category.topItems.length > 2 && ` +${category.topItems.length - 2} more`}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-12 bg-gray-800 rounded-lg">
-              <p className="text-gray-400 mb-2">📊 No summary data available</p>
-              <p className="text-sm text-gray-500">Upload some receipts to see your statistics</p>
-            </div>
-          )
-        )}
-
-        {activeTab === 'items' && (
-          <div className="mb-4 bg-gray-800 p-4 rounded-lg">
-            <div className="flex flex-wrap gap-6 mb-3">
-              <div className="flex items-center gap-2">
-                <input type="radio" id="current-year" name="timeFilter" checked={timeFilter === 'current-year'} onChange={() => setTimeFilter('current-year')} className="text-cyan-600" />
-                <label htmlFor="current-year" className="text-sm">Current Year</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <input type="radio" id="year" name="timeFilter" checked={timeFilter === 'year'} onChange={() => setTimeFilter('year')} className="text-cyan-600" />
-                <label htmlFor="year" className="text-sm">Year</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <input type="radio" id="month" name="timeFilter" checked={timeFilter === 'month'} onChange={() => setTimeFilter('month')} className="text-cyan-600" />
-                <label htmlFor="month" className="text-sm">Month</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <input type="radio" id="months" name="timeFilter" checked={timeFilter === 'months'} onChange={() => setTimeFilter('months')} className="text-cyan-600" />
-                <label htmlFor="months" className="text-sm">Last N Months</label>
-              </div>
-            </div>
-            
-            <div className="flex flex-wrap gap-4">
-              {timeFilter === 'year' && (
-                <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
-                  {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(year => (
-                    <option key={year} value={year}>{year}</option>
-                  ))}
-                </select>
-              )}
-              
-              {timeFilter === 'month' && (
-                <div className="flex gap-2">
-                  <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
-                    {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(year => (
-                      <option key={year} value={year}>{year}</option>
-                    ))}
-                  </select>
-                  <select value={selectedMonth} onChange={(e) => setSelectedMonth(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
-                    {Array.from({length: 12}, (_, i) => i + 1).map(month => (
-                      <option key={month} value={month}>{new Date(0, month - 1).toLocaleString('default', { month: 'long' })}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              
-              {timeFilter === 'months' && (
-                <select value={lastMonths} onChange={(e) => setLastMonths(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
-                  <option value={3}>Last 3 months</option>
-                  <option value={6}>Last 6 months</option>
-                  <option value={12}>Last 12 months</option>
-                </select>
-              )}
-            </div>
-          </div>
-        )}
-        
-        {activeTab === 'items' && (
-          !loading ? (
-          allItems.length > 0 ? (
-            <div className="bg-gray-800 rounded-lg overflow-hidden">
-              <div className="p-4 border-b border-gray-700">
-                <div className="flex justify-between items-center">
-                  <div>
-                    {selectedCategory ? (
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-sm text-gray-400">All Items</span>
-                        <span className="text-gray-400">&gt;</span>
-                        <span className="text-sm text-cyan-400">{selectedCategory}</span>
-                        <button 
-                          onClick={() => setSelectedCategory(undefined)}
-                          className="ml-2 text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
-                        >
-                          Clear Filter
-                        </button>
-                      </div>
-                    ) : null}
-                    <h3 className="text-xl font-semibold">
-                      {selectedCategory ? `${selectedCategory} Items` : 'Items'} ({allItems.length}{itemStats?.hasMore ? '+' : ''})
-                    </h3>
-                  </div>
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-700">
-                    <tr>
-                      <th className="p-4 text-left">Item Name</th>
-                      <th className="p-4 text-right">Total Spent</th>
-                      <th className="p-4 text-right">% of Total</th>
-                      <th className="p-4 text-right">Purchases</th>
-                      <th className="p-4 text-right">Avg Cost</th>
-                      <th className="p-4 text-right">Last Purchase</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      const totalSpent = allItems.reduce((sum, item) => sum + item.totalSpent, 0);
-                      return allItems.map((item, index) => {
-                        const percentage = totalSpent > 0 ? (item.totalSpent / totalSpent * 100) : 0;
-                        return (
-                          <tr key={index} className="border-b border-gray-700 hover:bg-gray-700/50">
-                            <td className="p-4">
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold">{item.shortLabel}</span>
-                                <span className="px-2 py-1 bg-cyan-600 text-xs rounded-full">{item.category}</span>
-                              </div>
-                            </td>
-                            <td className="p-4 text-right font-mono text-green-400">${item.totalSpent.toFixed(2)}</td>
-                            <td className="p-4 text-right font-mono text-cyan-400">{percentage.toFixed(1)}%</td>
-                            <td className="p-4 text-right font-mono">{item.purchaseCount}</td>
-                            <td className="p-4 text-right font-mono">${item.avgCost.toFixed(2)}</td>
-                            <td className="p-4 text-right text-sm text-gray-400">
-                              {new Date(item.lastPurchase).toLocaleDateString()}
-                            </td>
-                          </tr>
-                        );
-                      });
-                    })()
-                    }
-                  </tbody>
-                </table>
-              </div>
-              {itemStats?.hasMore && (
-                <div className="p-4 border-t border-gray-700 text-center">
-                  <button
-                    onClick={loadMoreItems}
-                    disabled={loading}
-                    className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-600 rounded transition-colors flex items-center gap-2 mx-auto"
-                  >
-                    {loading ? 'Loading...' : (
-                      <>
-                        Load More
-                        <span className="text-lg">→</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : !error ? (
-            <div className="text-center py-12 bg-gray-800 rounded-lg">
-              <p className="text-gray-400 mb-2">🛒 No item data available</p>
-              <p className="text-sm text-gray-500">Upload some receipts to see your item statistics</p>
-            </div>
-          ) : null
-          ) : (
-            <div className="text-center py-8 bg-gray-800 rounded-lg">
-              <p className="text-gray-400">Loading items...</p>
-            </div>
-          )
-        )}
-        
-        {activeTab === 'items' && error && (
-          <div className="text-center py-8 bg-gray-800 rounded-lg">
-            <p className="text-red-400 mb-2">⚠️ Error loading items</p>
-            <p className="text-gray-400 text-sm">{error}</p>
-          </div>
-        )}
-        
-        {activeTab === 'items' && loading && allItems.length > 0 && (
-          <div className="text-center py-4">
-            <p className="text-gray-400">Loading more items...</p>
-          </div>
-        )}
-
-        {activeTab === 'categories' && (
-          <div className="mb-4 bg-gray-800 p-4 rounded-lg">
-            <div className="flex flex-wrap gap-6 mb-3">
-              <div className="flex items-center gap-2">
-                <input type="radio" id="cat-current-year" name="catTimeFilter" checked={timeFilter === 'current-year'} onChange={() => setTimeFilter('current-year')} className="text-cyan-600" />
-                <label htmlFor="cat-current-year" className="text-sm">Current Year</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <input type="radio" id="cat-year" name="catTimeFilter" checked={timeFilter === 'year'} onChange={() => setTimeFilter('year')} className="text-cyan-600" />
-                <label htmlFor="cat-year" className="text-sm">Year</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <input type="radio" id="cat-month" name="catTimeFilter" checked={timeFilter === 'month'} onChange={() => setTimeFilter('month')} className="text-cyan-600" />
-                <label htmlFor="cat-month" className="text-sm">Month</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <input type="radio" id="cat-months" name="catTimeFilter" checked={timeFilter === 'months'} onChange={() => setTimeFilter('months')} className="text-cyan-600" />
-                <label htmlFor="cat-months" className="text-sm">Last N Months</label>
-              </div>
-            </div>
-            
-            <div className="flex flex-wrap gap-4">
-              {timeFilter === 'year' && (
-                <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
-                  {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(year => (
-                    <option key={year} value={year}>{year}</option>
-                  ))}
-                </select>
-              )}
-              
-              {timeFilter === 'month' && (
-                <div className="flex gap-2">
-                  <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
-                    {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(year => (
-                      <option key={year} value={year}>{year}</option>
-                    ))}
-                  </select>
-                  <select value={selectedMonth} onChange={(e) => setSelectedMonth(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
-                    {Array.from({length: 12}, (_, i) => i + 1).map(month => (
-                      <option key={month} value={month}>{new Date(0, month - 1).toLocaleString('default', { month: 'long' })}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              
-              {timeFilter === 'months' && (
-                <select value={lastMonths} onChange={(e) => setLastMonths(parseInt(e.target.value))} className="px-2 py-1 bg-gray-700 rounded text-sm">
-                  <option value={3}>Last 3 months</option>
-                  <option value={6}>Last 6 months</option>
-                  <option value={12}>Last 12 months</option>
-                </select>
-              )}
-            </div>
-          </div>
-        )}
-        
-        {activeTab === 'categories' && !loading && !error && (
-          categoryStats && categoryStats.categories.length > 0 ? (
-            <div className="space-y-4">
-              <div className="bg-gray-800 p-4 rounded-lg mb-4">
-                <h3 className="text-lg font-semibold mb-2">Total Spent: <span className="text-green-400">${categoryStats.totalSpent.toFixed(2)}</span></h3>
-              </div>
-              {categoryStats.categories.map((category, index) => (
-                <div key={index} className="bg-gray-800 rounded-lg p-6">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-semibold text-cyan-400">{category.category}</h3>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-green-400">${category.totalSpent.toFixed(2)}</p>
-                      <p className="text-sm text-gray-400">{category.itemCount} items • Avg ${category.avgSpentPerItem.toFixed(2)}</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {category.topItems.map((item, itemIndex) => (
-                      <div key={itemIndex} className="bg-gray-700 p-3 rounded flex justify-between items-center">
-                        <span className="font-medium">{item.shortLabel}</span>
-                        <span className="text-green-400 font-mono">${item.totalSpent.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12 bg-gray-800 rounded-lg">
-              <p className="text-gray-400 mb-2">📊 No category data available</p>
-              <p className="text-sm text-gray-500">Upload some receipts to see your category statistics</p>
-            </div>
-          )
-        )}
-
-        {activeTab === 'global' && (
+        {!loading && !error && summaryStats && (
           <div className="space-y-6">
-            <div className="bg-gray-800 p-6 rounded-lg">
-              <h3 className="text-xl font-semibold mb-4">Global Item Statistics</h3>
-              <div className="flex gap-2 mb-4">
-                <input
-                  type="text"
-                  value={globalItemName}
-                  onChange={(e) => setGlobalItemName(e.target.value)}
-                  placeholder="Enter item name..."
-                  className="flex-1 px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-cyan-400 focus:outline-none"
-                  onKeyPress={(e) => e.key === 'Enter' && fetchGlobalStats()}
-                />
-                <button
-                  onClick={fetchGlobalStats}
-                  disabled={!globalItemName.trim() || loading}
-                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-600 rounded transition-colors"
-                >
-                  Search
-                </button>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gray-800 p-6 rounded-lg">
+                <h3 className="text-lg font-semibold mb-2">Total Spent</h3>
+                <p className="text-3xl font-bold text-green-400">${summaryStats.totalSpent.toFixed(2)}</p>
+              </div>
+              <div className="bg-gray-800 p-6 rounded-lg">
+                <h3 className="text-lg font-semibold mb-2">Unique Items</h3>
+                <p className="text-3xl font-bold text-cyan-400">{summaryStats.totalUniqueItems}</p>
+              </div>
+              <div className="bg-gray-800 p-6 rounded-lg">
+                <h3 className="text-lg font-semibold mb-2">Avg per Item</h3>
+                <p className="text-3xl font-bold text-yellow-400">${summaryStats.avgSpentPerItem.toFixed(2)}</p>
               </div>
             </div>
 
-            {!loading && globalStats && (
-              <div className="bg-gray-800 p-6 rounded-lg">
-                <h4 className="text-lg font-semibold mb-4">Results for "{globalStats.itemName}"</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-gray-700 p-4 rounded">
-                    <p className="text-sm text-gray-400">Total Spent (All Users)</p>
-                    <p className="text-2xl font-bold text-green-400">${globalStats.totalSpent.toFixed(2)}</p>
+            {/* Top 5 Items */}
+            <div className="bg-gray-800 rounded-lg p-6">
+              <h3 className="text-xl font-semibold mb-4">Top 5 Items</h3>
+              <div className="space-y-3">
+                {summaryStats.topItems.map((item, index) => (
+                  <div key={index} className="flex justify-between items-center p-3 bg-gray-700 rounded">
+                    <div>
+                      <p className="font-semibold">{item.shortLabel}</p>
+                      <p className="text-sm text-gray-400">{item.purchaseCount} purchases</p>
+                    </div>
+                    <p className="text-lg font-bold text-green-400">${item.totalSpent.toFixed(2)}</p>
                   </div>
-                  <div className="bg-gray-700 p-4 rounded">
-                    <p className="text-sm text-gray-400">Total Purchases</p>
-                    <p className="text-2xl font-bold text-cyan-400">{globalStats.totalPurchases}</p>
-                  </div>
-                  <div className="bg-gray-700 p-4 rounded">
-                    <p className="text-sm text-gray-400">Average Cost</p>
-                    <p className="text-2xl font-bold text-yellow-400">${globalStats.avgCost.toFixed(2)}</p>
-                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Categories */}
+            {categoryStats && categoryStats.categories.length > 0 && (
+              <div className="bg-gray-800 rounded-lg p-6">
+                <h3 className="text-xl font-semibold mb-4">Categories</h3>
+                <div className="space-y-4">
+                  {categoryStats.categories.map((category, index) => (
+                    <div key={index} className="border border-gray-700 rounded-lg">
+                      <div 
+                        className="p-4 cursor-pointer hover:bg-gray-700 transition-colors flex justify-between items-center"
+                        onClick={() => handleCategoryExpand(category.category)}
+                      >
+                        <div>
+                          <h4 className="font-semibold text-cyan-400 flex items-center gap-2">
+                            {category.category}
+                            <span className="text-lg">{expandedCategory === category.category ? '−' : '+'}</span>
+                          </h4>
+                          <p className="text-sm text-gray-400">{category.itemCount} items • Avg ${category.avgSpentPerItem.toFixed(2)}</p>
+                        </div>
+                        <span className="text-xl font-bold text-green-400">${category.totalSpent.toFixed(2)}</span>
+                      </div>
+                      
+                      {expandedCategory === category.category && (
+                        <div className="border-t border-gray-700 p-4 min-h-[300px]">
+                          {categoryLoading ? (
+                            <p className="text-center py-4 text-gray-400">Loading items...</p>
+                          ) : (
+                            <>
+                              <div className="grid grid-cols-1 gap-1 mb-4">
+                                {categoryItems.map((item, itemIndex) => (
+                                  <div key={itemIndex} className="flex justify-between items-center p-2 border-b border-gray-700 last:border-b-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-medium">{item.shortLabel}</span>
+                                      <span className="text-xs text-gray-400">{item.purchaseCount} purchases</span>
+                                    </div>
+                                    <span className="text-green-400 font-mono">${item.totalSpent.toFixed(2)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              
+                              <div className="flex justify-end items-center gap-2">
+                                {categoryPage > 1 && (
+                                  <>
+                                    <button
+                                      onClick={() => goToPage(1)}
+                                      disabled={categoryLoading}
+                                      className="px-3 py-1 bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 rounded text-sm transition-colors"
+                                    >
+                                      1
+                                    </button>
+                                    <span className="text-gray-500">|</span>
+                                    {categoryPage > 2 && (
+                                      <>
+                                        <button
+                                          onClick={() => goToPage(categoryPage - 1)}
+                                          disabled={categoryLoading}
+                                          className="px-3 py-1 bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 rounded text-sm transition-colors"
+                                        >
+                                          {categoryPage - 1}
+                                        </button>
+                                        <span className="text-gray-500">|</span>
+                                      </>
+                                    )}
+                                  </>
+                                )}
+                                <span className="text-sm text-gray-400">{categoryPage}</span>
+                                {categoryHasMore && (
+                                  <>
+                                    <span className="text-gray-500">|</span>
+                                    <button
+                                      onClick={goToNextPage}
+                                      disabled={categoryLoading}
+                                      className="px-3 py-1 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-600 rounded text-sm transition-colors"
+                                    >
+                                      {categoryLoading ? 'Loading...' : 'Next'}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                              
+                              <div className="text-center mt-2">
+                                <button
+                                  onClick={() => setExpandedCategory(null)}
+                                  className="text-sm text-gray-400 hover:text-white"
+                                >
+                                  Close
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                <p className="text-sm text-gray-400 mt-4">
-                  Last updated: {new Date(globalStats.lastUpdated).toLocaleString()}
-                </p>
               </div>
             )}
-            
-            {!loading && !globalStats && globalItemName && (
-              <div className="text-center py-8 bg-gray-800 rounded-lg">
-                <p className="text-gray-400 mb-2">🔍 No results found</p>
-                <p className="text-sm text-gray-500">Item "{globalItemName}" not found in global database</p>
-              </div>
-            )}
+          </div>
+        )}
+
+        {!loading && !error && !summaryStats && (
+          <div className="text-center py-12 bg-gray-800 rounded-lg">
+            <p className="text-gray-400 mb-2">📊 No data available</p>
+            <p className="text-sm text-gray-500">Upload some receipts to see your statistics</p>
           </div>
         )}
       </div>
